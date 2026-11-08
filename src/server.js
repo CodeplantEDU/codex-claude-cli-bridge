@@ -4,6 +4,7 @@ import crypto from 'node:crypto';
 import zlib from 'node:zlib';
 import fs from 'node:fs';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { Readable } from 'node:stream';
 import { EventEmitter } from 'node:events';
 import WebSocket, { WebSocketServer } from 'ws';
@@ -610,7 +611,7 @@ export function createBridge(config = loadConfig(), state = new State()) {
   return { server, log, config, state };
 }
 
-const isMain = process.argv[1] && fs.realpathSync(process.argv[1]) === fs.realpathSync(new URL(import.meta.url).pathname);
+const isMain = process.argv[1] && fs.realpathSync(process.argv[1]) === fs.realpathSync(fileURLToPath(import.meta.url));
 if (isMain) {
   const { server, log, config, state } = createBridge();
   claudeCapabilities(config.claudePath).then((caps) => {
@@ -646,7 +647,7 @@ if (isMain) {
       if (reloadPending) restartIfIdle();
     });
   });
-  const srcDir = path.dirname(fs.realpathSync(new URL(import.meta.url).pathname));
+  const srcDir = path.dirname(fs.realpathSync(fileURLToPath(import.meta.url)));
   try {
     fs.watch(srcDir, { persistent: false }, (_e, file) => {
       if (!file || !file.endsWith('.js') || reloadPending) return;

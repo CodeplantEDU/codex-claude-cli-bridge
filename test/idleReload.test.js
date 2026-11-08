@@ -9,7 +9,7 @@ import { once } from 'node:events';
 import { parseMarker } from '../src/codexInput.js';
 
 async function startReloadBridge(t, scenario) {
-  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'ccb-reload-test-'));
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'ccb reload test '));
   fs.cpSync(new URL('../src', import.meta.url), path.join(directory, 'src'), { recursive: true });
   fs.symlinkSync(new URL('../node_modules', import.meta.url).pathname, path.join(directory, 'node_modules'));
   fs.writeFileSync(path.join(directory, 'package.json'), '{"type":"module"}');
