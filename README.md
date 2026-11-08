@@ -45,10 +45,12 @@ The installer:
 2. Installs the bridge's Node dependency with `npm ci`.
 3. Writes `~/.codex-claude-bridge/config.json`.
 4. Starts a background service on `127.0.0.1:18787` that runs at login and restarts if it crashes. Logs go to `~/Library/Logs/codex-claude-bridge.log`.
-5. Backs up `~/.codex/config.toml`, then adds one line at the top:
+5. Backs up `~/.codex/config.toml`, then configures the selected provider. The built-in OpenAI provider gets one line at the top:
    ```toml
    openai_base_url = "http://127.0.0.1:18787/backend-api/codex" # codex-claude-bridge
    ```
+
+For a selected custom provider pointed at the standard ChatGPT backend, setup changes only that provider’s `base_url`; uninstall restores its exact original line. Other custom endpoints are left unchanged and setup stops before changing the service.
 
 **Uninstall:** `./scripts/uninstall.sh` stops the service and removes that line. Restart Codex afterwards.
 

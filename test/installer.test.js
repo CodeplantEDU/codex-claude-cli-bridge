@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { configureRoute } from '../scripts/configure-route.js';
 import { spawnSync } from 'node:child_process';
 
 function isolatedInstaller(t) {
@@ -14,7 +15,7 @@ function isolatedInstaller(t) {
   fs.mkdirSync(scripts);
   fs.mkdirSync(bin);
   fs.mkdirSync(path.join(home, '.codex'), { recursive: true });
-  for (const name of ['install.sh', 'uninstall.sh']) {
+  for (const name of ['install.sh', 'uninstall.sh', 'configure-route.js']) {
     const source = fs.readFileSync(new URL(`../scripts/${name}`, import.meta.url), 'utf8');
     fs.writeFileSync(path.join(scripts, name), source.replace(/\$HOME\b/g, '$TEST_INSTALLER_HOME')); // Redirect script paths in the test copy without changing HOME or touching the user's service/config.
   }
@@ -41,4 +42,30 @@ test('uninstall restores the direct route even when the bridge line is the entir
   const result = installer.run('uninstall.sh');
   assert.equal(result.status, 0, result.stderr);
   assert.equal(fs.readFileSync(installer.config, 'utf8'), '');
+});
+
+// Reproduce this M1's selected custom provider without touching its real config.
+test('custom ChatGPT provider installs and uninstalls without losing unrelated settings', (t) => {
+  const installer = isolatedInstaller(t);
+  const original = 'model_provider = "openai-custom"\nmodel = "gpt-test"\n[model_providers."openai-custom"]\nname = "OpenAI"\nbase_url = "https://chatgpt.com/backend-api/codex" # owner choice\nwire_api = "responses"\n';
+  fs.writeFileSync(installer.config, original);
+  assert.equal(installer.run('install.sh').status, 0);
+  assert.match(fs.readFileSync(installer.config, 'utf8'), /base_url = "http:\/\/127.0.0.1:18787/);
+  assert.equal(installer.run('uninstall.sh').status, 0);
+  assert.equal(fs.readFileSync(installer.config, 'utf8'), original);
+});
+
+test('custom non-ChatGPT endpoints are rejected before service installation', (t) => {
+  const installer = isolatedInstaller(t);
+  const original = 'model_provider = "private"\n[model_providers.private]\nbase_url = "https://example.test/private"\n';
+  fs.writeFileSync(installer.config, original);
+  assert.notEqual(installer.run('install.sh').status, 0);
+  assert.equal(fs.readFileSync(installer.config, 'utf8'), original);
+  assert.equal(fs.existsSync(path.join(installer.home, 'Library/LaunchAgents/com.codex-claude-bridge.plist')), false);
+});
+
+test('uninstall restores a managed provider even after selecting another provider', () => {
+  const original = 'model_provider = "custom"\n[model_providers.custom]\nbase_url = "https://chatgpt.com/backend-api/codex"\n';
+  const installed = configureRoute(original, 'http://127.0.0.1:18787/backend-api/codex');
+  assert.equal(configureRoute(installed.replace('model_provider = "custom"', 'model_provider = "openai"'), '', true), original.replace('model_provider = "custom"', 'model_provider = "openai"'));
 });

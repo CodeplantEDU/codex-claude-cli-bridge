@@ -42,6 +42,11 @@ say "claude: $CLAUDE ($("$CLAUDE" --version 2>/dev/null | head -1))"
 command -v npm >/dev/null 2>&1 || die "npm not found. Install npm alongside Node.js."
 npm ci --omit=dev --prefix "$DIR"
 
+# Reject unsupported routes before changing a service or its configuration.
+mkdir -p "$(dirname "$CODEX_CONFIG")"
+touch "$CODEX_CONFIG"
+"$NODE" "$DIR/scripts/configure-route.js" "$CODEX_CONFIG" "http://127.0.0.1:$PORT/backend-api/codex" check
+
 # --- bridge config -------------------------------------------------------------
 mkdir -p "$BRIDGE_HOME" "$(dirname "$PLIST")" "$(dirname "$LOG")"
 if [ ! -f "$BRIDGE_HOME/config.json" ]; then
@@ -118,26 +123,8 @@ say "bridge healthy on http://127.0.0.1:$PORT"
 # --- Codex config ------------------------------------------------------------------
 mkdir -p "$(dirname "$CODEX_CONFIG")"
 touch "$CODEX_CONFIG"
-if grep -Eq '^[[:space:]]*openai_base_url[[:space:]]*=.*# codex-claude-bridge' "$CODEX_CONFIG"; then
-  "$NODE" -e '
-    const fs=require("fs"), file=process.argv[1], url=process.argv[2], text=fs.readFileSync(file,"utf8");
-    const updated=text.replace(/^[\t ]*openai_base_url[\t ]*=[^\r\n]*# codex-claude-bridge[^\r\n]*$/m, `openai_base_url = ${JSON.stringify(url)} # codex-claude-bridge`);
-    if(updated!==text) { fs.copyFileSync(file, `${file}.bak-ccb-${Date.now()}`); fs.writeFileSync(file,updated); }
-  ' "$CODEX_CONFIG" "http://127.0.0.1:$PORT/backend-api/codex" # Reinstalling on another port must move the existing managed route too; preserve unowned settings.
-  say "Codex already points at the bridge"
-else
-  if grep -Eq '^[[:space:]]*openai_base_url[[:space:]]*=' "$CODEX_CONFIG"; then
-    die "~/.codex/config.toml already sets openai_base_url; remove it or point it at http://127.0.0.1:$PORT/backend-api/codex yourself."
-  fi
-  BACKUP="$CODEX_CONFIG.bak-ccb-$(date +%Y%m%d-%H%M%S)"
-  cp "$CODEX_CONFIG" "$BACKUP"
-  say "backed up Codex config to $BACKUP"
-  {
-    echo "openai_base_url = \"http://127.0.0.1:$PORT/backend-api/codex\" $TAG"
-    cat "$BACKUP"
-  } > "$CODEX_CONFIG"
-  say "added openai_base_url to ~/.codex/config.toml"
-fi
+"$NODE" "$DIR/scripts/configure-route.js" "$CODEX_CONFIG" "http://127.0.0.1:$PORT/backend-api/codex"
+say "configured selected Codex provider"
 
 if [ "$HAS_ZSTD" != "true" ] && ! grep -q "enable_request_compression" "$CODEX_CONFIG"; then
   # This Node can't decode Codex's zstd request bodies, so ask Codex not to compress.

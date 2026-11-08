@@ -357,3 +357,7 @@ A scratch copy of the previous source confirmed four defects:
 **Commit:** fdec844
 **Guard:** install.sh comments at the bootout block; re-run install.sh while service is running
 ---
+
+## 2026-11-08: selected custom providers need their own route
+
+The M1 selected `openai-custom` with a standard ChatGPT `base_url`. A top-level `openai_base_url` only configures the built-in provider, so installing a healthy service alone would not expose Claude there. The installer now preflights the selected provider before service changes, changes only its standard ChatGPT endpoint, backs up the config and records the exact original line for uninstall. Unrelated endpoints are refused. Isolated installer tests cover the original built-in route, a port change, custom ChatGPT install/uninstall and rejecting private endpoints.
