@@ -197,10 +197,10 @@ test('model catalog adds Claude models after GPT', async () => {
   const r = await request('/backend-api/codex/models?client_version=1.0', { method: 'GET' });
   assert.equal(r.status, 200);
   const { models } = JSON.parse(r.data);
-  assert.deepEqual(models.map((m) => m.slug), ['gpt-6-sol', 'claude-opus-5-5', 'claude-fable-5-1']);
+  assert.deepEqual(models.map((m) => m.slug), ['gpt-6-sol', 'claude-opus-5-5', 'claude-fable-5-2', 'claude-fable-5-1']);
   const opus = models[1];
   assert.equal(opus.display_name, 'Opus 5.5');
-  assert.equal(models[2].display_name, 'Fable 5.1', 'picker names always include the model version');
+  assert.equal(models[2].display_name, 'Fable 5.2', 'picker names always include the model version');
   assert.equal(opus.comp_hash, 'abc', 'keeps comp_hash so switching models does not force compaction');
   assert.equal(opus.guardian, undefined);
   assert.ok(opus.priority > 1);
@@ -215,7 +215,7 @@ test('hidden upstream models stay available without appearing in the picker', ()
   const models = mergeCatalog({ ...DEFAULTS, hiddenModels }, new State(path.join(tmp, 'hidden-state.json')), [GPT_MODEL, ...olderModels]);
   for (const slug of hiddenModels) assert.equal(models.find((model) => model.slug === slug).visibility, 'hide');
   assert.equal(models.find((model) => model.slug === 'gpt-6-sol').visibility, 'list');
-  assert.deepEqual(models.slice(-2).map((model) => model.slug), ['claude-opus-5-5', 'claude-fable-5-1']);
+  assert.deepEqual(models.slice(-3).map((model) => model.slug), ['claude-opus-5-5', 'claude-fable-5-2', 'claude-fable-5-1']);
 });
 
 test('Claude turn streams text, reasoning, web search and a marker; second turn resumes', async () => {
@@ -1210,17 +1210,19 @@ test('a question-card answer starting a new turn is the user\'s prompt, not back
   assert.equal(classifyUserText('<environment_context><cwd>/x</cwd></environment_context>'), 'environment');
 });
 
-test('Fable receives XML-authored requests verbatim on a new and resumed turn', async () => {
+test('Fable 5.2 receives XML-authored requests verbatim on a new and resumed turn', async () => {
   fs.rmSync(claudeLog, { force: true });
   const firstText = '<speech start_at="1" end_at="2">Explain the plan; do not implement it.</speech>';
   const input = [perms, envContext(workdir), userMsg(firstText)];
-  const first = await request('/backend-api/codex/responses', { headers: { 'content-type': 'application/json' }, body: responsesBody('claude-fable-5-1', input) });
+  const first = await request('/backend-api/codex/responses', { headers: { 'content-type': 'application/json' }, body: responsesBody('claude-fable-5-2', input) });
   assert.equal(first.status, 200);
   const nextText = '<app_selection><text>Earlier plan</text></app_selection>\n\nAnswer my questions before changing files.';
-  const second = await request('/backend-api/codex/responses', { headers: { 'content-type': 'application/json' }, body: responsesBody('claude-fable-5-1', [...input, ...doneItems(first.data), userMsg(nextText)]) });
+  const second = await request('/backend-api/codex/responses', { headers: { 'content-type': 'application/json' }, body: responsesBody('claude-fable-5-2', [...input, ...doneItems(first.data), userMsg(nextText)]) });
   assert.equal(second.status, 200);
   const calls = readClaudeLog();
   assert.equal(calls.length, 2);
+  assert.equal(calls[0].args[calls[0].args.indexOf('--model') + 1], 'claude-fable-5-2');
+  assert.equal(calls[1].args[calls[1].args.indexOf('--model') + 1], 'claude-fable-5-2');
   assert.equal(JSON.parse(calls[0].stdin).message.content[0].text, firstText);
   assert.equal(JSON.parse(calls[1].stdin).message.content[0].text, nextText);
   assert.ok(calls[1].args.includes('--resume'));

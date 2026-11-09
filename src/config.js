@@ -1,3 +1,4 @@
+// Shared model routes and local configuration for the bridge server and installer.
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -50,7 +51,7 @@ export const DEFAULTS = {
   // Absolute path is best when running under launchd (PATH is minimal there).
   claudePath: 'claude',
   // Models added to Codex's picker. `claudeModel` is passed to `claude --model`.
-  // Every displayName includes the model version (e.g. "Fable 5.1", not "Fable"), so
+  // Every displayName includes the model version (e.g. "Fable 5.2", not "Fable"), so
   // the picker always shows exactly which model a chat runs on.
   models: [
     {
@@ -60,6 +61,12 @@ export const DEFAULTS = {
       description: 'Claude Opus 5.5, running through your Claude Code CLI.',
     },
     {
+      slug: 'claude-fable-5-2',
+      displayName: 'Fable 5.2',
+      claudeModel: 'claude-fable-5-2',
+      description: 'Claude Fable 5.2, running through your Claude Code CLI.',
+    },
+    { // Keep the previous route so upgrading the picker does not break existing Fable 5.1 chats.
       slug: 'claude-fable-5-1',
       displayName: 'Fable 5.1',
       claudeModel: 'claude-fable-5-1',
