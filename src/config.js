@@ -10,6 +10,36 @@ export const BRIDGE_HOME =
 // which keeps every GPT feature (remote compaction, model catalog, etc.) on.
 export const BASE_PATH = '/backend-api/codex';
 
+function readUserConfig() {
+  try {
+    const user = JSON.parse(fs.readFileSync(path.join(BRIDGE_HOME, 'config.json'), 'utf8'));
+    if (!user || typeof user !== 'object' || Array.isArray(user)) throw new Error('Expected a configuration object');
+    return user;
+  } catch (error) {
+    if (error.code === 'ENOENT') return {};
+    throw error;
+  }
+}
+
+function modelsFromConfig(user) {
+  const models = user.models === undefined ? JSON.parse(fs.readFileSync(new URL('./models.json', import.meta.url), 'utf8')) : user.models;
+  const slugs = new Set();
+  if (!Array.isArray(models)) throw new Error('Expected a model list');
+  for (const model of models) {
+    if (!model || ['slug', 'displayName', 'claudeModel'].some((key) => typeof model[key] !== 'string' || !model[key].trim()) || slugs.has(model.slug)) {
+      throw new Error('Each model needs a unique slug, displayName and claudeModel');
+    }
+    if (model.hidden !== undefined && typeof model.hidden !== 'boolean') throw new Error('Model hidden must be a boolean');
+    slugs.add(model.slug);
+  }
+  return models;
+}
+
+/** Reads model data again without applying unrelated service settings to active work. */
+export function loadModels() {
+  return modelsFromConfig(readUserConfig());
+}
+
 // Reuse Codex's installed computer-use server only when the user enabled that plugin.
 export function findCodexComputerUseMcpConfig(codexHome = process.env.CODEX_HOME || path.join(os.homedir(), '.codex')) {
   let enabled = false;
@@ -53,26 +83,7 @@ export const DEFAULTS = {
   // Models added to Codex's picker. `claudeModel` is passed to `claude --model`.
   // Every displayName includes the model version (e.g. "Fable 5.2", not "Fable"), so
   // the picker always shows exactly which model a chat runs on.
-  models: [
-    {
-      slug: 'claude-opus-5-5',
-      displayName: 'Opus 5.5',
-      claudeModel: 'claude-opus-5-5',
-      description: 'Claude Opus 5.5, running through your Claude Code CLI.',
-    },
-    {
-      slug: 'claude-fable-5-2',
-      displayName: 'Fable 5.2',
-      claudeModel: 'claude-fable-5-2',
-      description: 'Claude Fable 5.2, running through your Claude Code CLI.',
-    },
-    { // Keep the previous route so upgrading the picker does not break existing Fable 5.1 chats.
-      slug: 'claude-fable-5-1',
-      displayName: 'Fable 5.1',
-      claudeModel: 'claude-fable-5-1',
-      description: 'Claude Fable 5.1, running through your Claude Code CLI.',
-    },
-  ],
+  models: modelsFromConfig({}), // JSON data can change during use; keep older entries there for chats that must survive future service restarts too.
   // Keep selected upstream models usable in existing chats while omitting them from the picker.
   hiddenModels: [],
   // Codex sandbox_mode -> Claude Code permission mode.
@@ -102,7 +113,7 @@ export function loadConfig() {
   const file = path.join(BRIDGE_HOME, 'config.json');
   let user = {};
   try {
-    user = JSON.parse(fs.readFileSync(file, 'utf8'));
+    user = readUserConfig();
   } catch (err) {
     if (err.code !== 'ENOENT') {
       console.error(`[bridge] could not read ${file}: ${err.message}`);
@@ -111,6 +122,7 @@ export function loadConfig() {
   const config = {
     ...DEFAULTS,
     ...user,
+    models: modelsFromConfig(user),
     permissionModes: { ...DEFAULTS.permissionModes, ...(user.permissionModes || {}) },
   };
   if (process.env.CODEX_CLAUDE_BRIDGE_PORT) config.port = Number(process.env.CODEX_CLAUDE_BRIDGE_PORT);

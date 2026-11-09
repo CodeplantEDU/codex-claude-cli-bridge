@@ -66,7 +66,7 @@ On macOS, `RunAtLoad` and `KeepAlive` in `~/Library/LaunchAgents/com.codex-claud
 
 | In Codex | In Claude Code |
 |---|---|
-| Model picker entry (default: Opus 5.5, Fable 5.2; Fable 5.1 retained for existing chats) | `claude --model …` |
+| Model picker entry (default: Opus 5.5, Fable 5.2; Fable 5.1 hidden but retained for existing chats) | `claude --model …` |
 | Reasoning effort | `--effort` (low … max) |
 | Full access / workspace-write / read-only | `bypassPermissions` / `acceptEdits` / `dontAsk` |
 | Plan mode | `--permission-mode plan`; the plan comes back as Codex's plan card |
@@ -195,7 +195,7 @@ The bridge keeps Claude Code's own agent and selectively transfers Codex context
   "models": [
     { "slug": "claude-opus-5-5", "displayName": "Opus 5.5", "claudeModel": "claude-opus-5-5" },
     { "slug": "claude-fable-5-2", "displayName": "Fable 5.2", "claudeModel": "claude-fable-5-2" },
-    { "slug": "claude-fable-5-1", "displayName": "Fable 5.1", "claudeModel": "claude-fable-5-1" },
+    { "slug": "claude-fable-5-1", "displayName": "Fable 5.1", "claudeModel": "claude-fable-5-1", "hidden": true },
     { "slug": "claude-sonnet-5", "displayName": "Sonnet 5", "claudeModel": "claude-sonnet-5" }
   ],
   "hiddenModels": ["gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna"],
@@ -206,14 +206,22 @@ The bridge keeps Claude Code's own agent and selectively transfers Codex context
 }
 ```
 
-- `models`: what appears in the picker. `claudeModel` is anything `claude --model` accepts (an alias or a full model name). Put the version in `displayName` (e.g. "Sonnet 5") so the picker shows exactly which model you get.
+- `models`: Claude routes and picker entries. Set `hidden: true` on a replaced version to remove its button from the picker and Model Bar while keeping existing chats usable. `claudeModel` is anything `claude --model` accepts (an alias or a full model name). Put the version in `displayName` (e.g. "Sonnet 5") so the picker shows exactly which model you get.
 - `hiddenModels`: optional upstream model slugs to hide from the picker. They remain in the catalog so existing chats can still use them. The example hides the three GPT-5.6 entries; the default is an empty list.
 - `permissionModes`: maps Codex's sandbox mode to a Claude Code permission mode.
 - `defaultPermissionMode`: the Claude permission mode when Codex omits sandbox information or sends an unrecognized mode. Defaults to `acceptEdits`, which can still deny commands needing approval in a non-interactive turn.
 - `fallbackModel`: the GPT model that answers housekeeping requests.
 - `codexComputerUseMcpConfig`: found automatically when Codex's bundled Computer Use plugin is explicitly enabled. It's used only when a Codex request doesn't already offer Computer Use as a Codex-run tool. Set it to `null` to disable that fallback, or to a `.mcp.json` path to override discovery.
 
-After changing the config, restart the service, then restart Codex so it reloads the model list:
+### Updating models without reinstalling Codex
+
+Default Claude models live in `src/models.json`. Your optional `models` list in `~/.codex-claude-bridge/config.json` overrides that file. Model-only edits are picked up on the next local request or WebSocket message, including on connections already in use. No Codex reinstall or bridge restart is needed for those data edits. In Model Bar, use **Refresh models** from its right-click menu to fetch the updated list.
+
+Already-running Claude turns keep their admitted model and settings. Removed entries remain routable in the running service so an existing chat or waiting tool result is not sent to GPT. Keep older entries in the data file too if those chats must remain usable after a later service restart; Fable 5.1 is retained with `hidden: true` for that reason. When replacing a version, show the new version and hide the old one rather than leaving both buttons visible. An incomplete or invalid JSON edit keeps the last valid list and logs one warning until the file is repaired.
+
+Other configuration changes, such as the listener port, upstream server or permissions, still require an idle bridge restart. JavaScript code updates also use the idle restart below. Neither operation requires reinstalling Codex. The first update from a bridge without model hot reload needs one idle reload to enable it.
+
+Restart the service only after active chats finish:
 
 ```bash
 launchctl kickstart -k gui/$(id -u)/com.codex-claude-bridge

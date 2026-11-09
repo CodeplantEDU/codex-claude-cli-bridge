@@ -201,6 +201,7 @@ test('model catalog adds Claude models after GPT', async () => {
   const opus = models[1];
   assert.equal(opus.display_name, 'Opus 5.5');
   assert.equal(models[2].display_name, 'Fable 5.2', 'picker names always include the model version');
+  assert.deepEqual(models.filter((model) => model.visibility === 'list').map((model) => model.slug), ['gpt-6-sol', 'claude-opus-5-5', 'claude-fable-5-2'], 'a replacement hides the old picker/bar entry while retaining its route');
   assert.equal(opus.comp_hash, 'abc', 'keeps comp_hash so switching models does not force compaction');
   assert.equal(opus.guardian, undefined);
   assert.ok(opus.priority > 1);

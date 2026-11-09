@@ -35,7 +35,7 @@ export function claudeEntries(config, state, template, maxPriority = 0) {
       description: m.description,
       default_reasoning_level: m.defaultEffort || 'high',
       supported_reasoning_levels: EFFORT_LEVELS,
-      visibility: 'list',
+      visibility: m.hidden ? 'hide' : 'list', // Retired versions still route existing chats without keeping an old button in the picker or bar.
       supported_in_api: true,
       priority: (m.priority ?? maxPriority + 1 + i),
       upgrade: null,

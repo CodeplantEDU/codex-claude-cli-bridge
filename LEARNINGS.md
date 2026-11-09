@@ -23,6 +23,16 @@ Each entry looks like:
 
 (newest first)
 
+
+---
+**Date:** 2026-11-09
+**Trigger:** Replacing Fable 5.1 with 5.2 left both buttons visible after a Codex restart; Ethan requested future model updates without reinstalling Codex.
+**Symptom:** The running bridge had the new route, but the previous version was still a listed model. Editing model declarations in JavaScript also required a bridge process reload, which waits for GPT sockets as well as Claude work.
+**Root cause:** Defaults were compiled into `config.js`, and every Claude catalogue entry forced `visibility: 'list'`.
+**Fix:** Default route data now lives in `src/models.json`; `hidden: true` keeps an old route available without its picker/bar button. Production request and WebSocket admission rereads model data only, preserving unrelated settings, admitted turns and removed routes in the running process. Malformed edits retain the last valid list until repair. Model Bar's existing catalogue refresh applies visibility without an app rebuild. The first JavaScript update still requires one idle bridge reload; model-data edits after that do not. Removed routes survive a service restart only if they remain in the data file, hidden where appropriate.
+**Guard:** All 97 tests passed, including four isolated reload tests covering an unchanged GPT socket, model changes on that socket and fresh Claude-hinted upgrades, a running Claude turn, retained old routes, malformed/duplicate/null/invalid-visibility edits, and keeping non-model configuration fixed. No paid turns are made by those tests. Installed Fable 5.2 separately returned its smoke token. The running bar logged Fable 5.2 visible and 5.1 absent after updating its existing hidden-model preference; no bar or Codex restart was needed for that visibility repair. Source tests do not establish that the production process has loaded the hot-reload code; verify its PID after the idle reload separately.
+---
+
 ---
 **Date:** 2026-10-29T18:35:00Z
 **Trigger:** Switching a projectless Documents chat from GPT to Opus produced `Claude Code stopped: error: An unknown error occurred (Unexpected)`.

@@ -8,7 +8,7 @@ import { fileURLToPath } from 'node:url';
 import { Readable } from 'node:stream';
 import { EventEmitter } from 'node:events';
 import WebSocket, { WebSocketServer } from 'ws';
-import { loadConfig, BASE_PATH, BRIDGE_HOME } from './config.js';
+import { loadConfig, loadModels, BASE_PATH, BRIDGE_HOME } from './config.js';
 import { State } from './state.js';
 import { parseCodexRequest, buildClaudeUserMessage, sanitizeInputForOpenAI, makeMarker } from './codexInput.js';
 import { ResponsesStream, usageObject, rid } from './responsesStream.js';
@@ -137,9 +137,28 @@ export function isAgentTurn(body) {
   );
 }
 
-export function createBridge(config = loadConfig(), state = new State()) {
+export function createBridge(initialConfig, state = new State()) {
+  let config = initialConfig ?? loadConfig();
   const log = makeLogger(config.logLevel);
   const claudeSlugs = new Map(config.models.map((m) => [m.slug, m]));
+  let modelSnapshot = JSON.stringify(config.models);
+  let warnedInvalidModels = false;
+  function refreshModels() {
+    if (initialConfig) return; // An explicitly supplied embedded/test configuration stays owned by its caller.
+    try {
+      const models = loadModels();
+      const snapshot = JSON.stringify(models);
+      warnedInvalidModels = false;
+      if (snapshot === modelSnapshot) return;
+      for (const model of models) claudeSlugs.set(model.slug, model); // Retain removed routes so an existing chat or waiting tool result still reaches Claude.
+      config = { ...config, models }; // Existing native turns keep the configuration object and model they were admitted with.
+      modelSnapshot = snapshot;
+      log.info(`model catalog reloaded: ${models.map((model) => model.slug).join(', ')}`);
+    } catch {
+      if (!warnedInvalidModels) log.error('invalid model configuration; keeping the last valid model catalog'); // A partial or malformed JSON edit must not reroute Claude chats to GPT or flood the log.
+      warnedInvalidModels = true;
+    }
+  }
   const isClaude = (model) => claudeSlugs.has(model);
   const lastClaudeResponses = new WeakMap(); // Responses with store=false live only on their socket, never in the on-disk session index.
 
@@ -353,6 +372,7 @@ export function createBridge(config = loadConfig(), state = new State()) {
   }
 
   function routeWebSocketMessage(req, client, data, isBinary, forwardGpt) {
+    refreshModels();
     let body;
     try { body = isBinary ? null : JSON.parse(data.toString()); } catch { body = null; }
     const modelCfg = claudeSlugs.get(body?.model);
@@ -415,6 +435,7 @@ export function createBridge(config = loadConfig(), state = new State()) {
   }
 
   function proxyWebSocket(req, socket, head) {
+    refreshModels();
     socket.on('error', (error) => {
       log.error(`websocket connection failed: ${error.message}`);
       socket.destroy(); // A client can disconnect during a rejected upgrade; the October 2 EPIPE otherwise killed the whole bridge.
@@ -522,6 +543,7 @@ export function createBridge(config = loadConfig(), state = new State()) {
       res.writeHead(403);
       return res.end();
     }
+    refreshModels();
     const url = new URL(req.url, 'http://127.0.0.1');
     if (url.pathname === '/health') {
       res.writeHead(200, { 'content-type': 'application/json' });
