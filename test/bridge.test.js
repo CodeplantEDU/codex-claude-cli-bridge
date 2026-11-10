@@ -1096,20 +1096,22 @@ test('compaction carrying a pending tool result returns a compaction item instea
 
 test('WebSocket compaction after a tool handoff returns a compaction item, not another tool call', async () => {
   process.env.FAKE_CLAUDE_SCENARIO = 'codex-tools';
+  process.env.FAKE_CODEX_TOOL = 'exec';
   const thread = 'ws-compact-tools';
   const socket = new WebSocket(`ws://127.0.0.1:${port}/backend-api/codex/responses`, { headers: { 'thread-id': thread } });
   try {
     await new Promise((resolve, reject) => { socket.once('open', resolve); socket.once('error', reject); });
     const input = [perms, envContext(workdir), userMsg('list my tasks')];
     const first = await webSocketTurn(socket, JSON.parse(responsesBody('claude-fable-5-2', input, { tools: codexTools })));
-    const call = first.response.output.find((item) => item.type === 'function_call');
-    const result = { type: 'function_call_output', call_id: call.call_id, output: 'apricot over WebSocket' };
+    const call = first.response.output.find((item) => item.type === 'custom_tool_call');
+    const result = { type: 'custom_tool_call_output', call_id: call.call_id, output: 'apricot over WebSocket' };
     const compact = await webSocketTurn(socket, JSON.parse(responsesBody('claude-fable-5-2', [...input, ...first.response.output, result, { type: 'compaction_trigger' }], { tools: codexTools })));
     assert.equal(compact.response.output.filter((item) => item.type === 'compaction').length, 1);
-    assert.equal(compact.response.output.some((item) => item.type === 'function_call'), false);
+    assert.equal(compact.response.output.some((item) => item.type === 'custom_tool_call'), false);
   } finally {
     socket.close();
     delete process.env.FAKE_CLAUDE_SCENARIO;
+    delete process.env.FAKE_CODEX_TOOL;
   }
 });
 
