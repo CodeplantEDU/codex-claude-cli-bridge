@@ -296,11 +296,11 @@ export function createBridge(initialConfig, state = new State()) {
 
     // Codex ran tools a waiting Claude turn asked for: that same Claude process continues in this response.
     const results = findCodexResults(body.input, threadId);
-    if (results) {
+    if (results && !parsed.hasCompactionTrigger) { // A compact request may contain the just-finished tool result; resuming normal work here gives Codex zero compaction items.
       results.turn.resume(stream, results);
       return;
     }
-    await cancelWaitingCodexTurns(threadId);
+    await cancelWaitingCodexTurns(threadId, parsed.hasCompactionTrigger ? 'compaction' : 'new-request');
 
     if (parsed.hasCompactionTrigger) {
       // Codex wants to compact a Claude thread: compact the Claude session instead.
@@ -309,7 +309,8 @@ export function createBridge(initialConfig, state = new State()) {
       if (sid) {
         stream.reasoning('**Compacting Claude Code context**');
         const keep = setInterval(() => stream.keepAlive(), config.keepAliveSeconds * 1000);
-        const r = await compactSession({ config, sid, cwd: parsed.cwd, log, threadId, fork: differentSessionOwner });
+        const toolOutputs = (body.input || []).slice((parsed.marker?.index ?? -1) + 1).filter((item) => ['function_call_output', 'custom_tool_call_output'].includes(item?.type)); // These results may not have reached the stopped native turn; retain them even when retrying a failed compact.
+        const r = await compactSession({ config, sid, cwd: parsed.cwd, log, threadId, modelCfg, toolOutputs, fork: differentSessionOwner });
         clearInterval(keep);
         if (!r.ok) {
           stream.fail(r.error); // A failed compaction must not replace Codex's history or claim the parent's session.

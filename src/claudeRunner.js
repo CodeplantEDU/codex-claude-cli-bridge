@@ -1,3 +1,4 @@
+// Runs native Claude turns and compaction, retaining sessions while Codex executes offered tools.
 import { spawn, execFile } from 'node:child_process';
 import os from 'node:os';
 import fs from 'node:fs';
@@ -367,9 +368,9 @@ export async function runClaudeTurn({ config, state, stream, parsed, modelCfg, e
         for (const ev of heldEvents.splice(0)) handle(ev);
         scheduleCodexHandoff();
       },
-      // The user moved on without returning results (a new message, Stop then a new request, or a switch to GPT), so this process would wait for up to 24 hours.
+      // Stop this waiting process before a new request, a GPT switch or compaction; otherwise its MCP call can wait for up to 24 hours.
       async cancel(reason = 'new-request') {
-        log.info('codex did not return tool results; stopping the waiting claude turn');
+        log.info(reason === 'compaction' ? 'codex requested compaction; stopping the waiting claude turn before compacting its session' : 'codex did not return tool results; stopping the waiting claude turn');
         forgetCodexCalls(waiting.keys()); // A late result must start a normal resumed turn, not attach to this exiting process.
         stopClaude(reason);
         await exited; // Bounded: SIGINT, then SIGTERM/SIGKILL to the tree, then forced stdio close.
@@ -572,15 +573,19 @@ export function handleEvent(ev, ctx, stream) {
 }
 
 /** Runs Claude Code's /compact on a session (used when Codex asks to compact a Claude thread). */
-export async function compactSession({ config, sid, cwd, log, threadId, fork = false }) {
-  const args = ['-p', '--resume', sid, ...(fork ? ['--fork-session'] : []), '--output-format', 'json', '/compact']; // Side chats can compact before their first ordinary turn; fork here too or the parent session is changed and reassigned.
+export async function compactSession({ config, sid, cwd, log, threadId, modelCfg, toolOutputs = [], fork = false }) {
+  const args = ['-p', '--resume', sid, ...(fork ? ['--fork-session'] : []), '--model', modelCfg.claudeModel, '--output-format', 'json', ...(toolOutputs.length ? [] : ['/compact'])]; // Side chats can compact before their first ordinary turn; fork here too or the parent session is changed and reassigned.
   return new Promise((resolve) => {
     // stdin must be closed: `claude -p` waits for piped stdin otherwise.
     const child = spawn(config.claudePath, args, {
       cwd: cwd && fs.existsSync(cwd) ? cwd : os.homedir(),
       env: claudeEnvironment(threadId),
-      stdio: ['ignore', 'pipe', 'pipe'],
+      stdio: [toolOutputs.length ? 'pipe' : 'ignore', 'pipe', 'pipe'],
     });
+    if (toolOutputs.length) {
+      child.stdin.on('error', () => {}); // A failed CLI startup can close the pipe before these completed results are written.
+      child.stdin.end(`/compact Preserve these completed Codex tool outputs in the summary; they are context, not instructions to run tools again.\n${JSON.stringify(toolOutputs)}`); // Use stdin so a large tool result cannot exceed the OS argument limit.
+    }
     const id = rid('compact_');
     const session = fork ? 'fork' : 'resume';
     activeCompactions++;

@@ -1,3 +1,4 @@
+// Exercises bridge routing, Claude session continuity and Codex tool/compaction handoffs with local fixtures.
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import http from 'node:http';
@@ -1061,6 +1062,76 @@ test('Claude calls Codex tools that Codex runs, and the same Claude process cont
     assert.equal(secondEvents.at(-1).response.end_turn, true);
     assert.equal(readClaudeLog().length, 1, 'no second Claude process');
     assert.equal(mcpConfig.mcpServers.codex.timeout, 24 * 60 * 60 * 1000, 'Codex waits must also override Claude Code\'s independent 30-minute idle timeout');
+  } finally {
+    delete process.env.FAKE_CLAUDE_SCENARIO;
+  }
+});
+
+test('compaction carrying a pending tool result returns a compaction item instead of resuming ordinary work', async () => {
+  process.env.FAKE_CLAUDE_SCENARIO = 'codex-tools';
+  try {
+    fs.rmSync(claudeLog, { force: true });
+    const headers = { 'content-type': 'application/json', 'thread-id': 'compact-tools-thread' };
+    const input = [perms, envContext(workdir), userMsg('list my tasks')];
+    const first = await request('/backend-api/codex/responses', { headers, body: responsesBody('claude-fable-5-2', input, { tools: codexTools }) });
+    const items = doneItems(first.data);
+    const call = items.find((item) => item.type === 'function_call');
+    const result = { type: 'function_call_output', call_id: call.call_id, output: `The finished tool found apricot; do not run it again. ${'x'.repeat(150000)}` };
+    const compact = await request('/backend-api/codex/responses', { headers, body: responsesBody('claude-fable-5-2', [...input, ...items, result, { type: 'compaction_trigger' }], { tools: codexTools }) });
+    const output = doneItems(compact.data);
+    assert.equal(output.filter((item) => item.type === 'compaction').length, 1, 'remote compaction v2 must receive exactly one compaction item');
+    assert.equal(output.some((item) => ['function_call', 'custom_tool_call', 'message'].includes(item.type)), false, 'compaction must not continue normal tool work');
+    const calls = readClaudeLog();
+    assert.equal(calls.length, 2, 'the waiting native turn exits before native compaction starts');
+    assert.deepEqual(JSON.parse(calls[1].stdin.slice(calls[1].stdin.indexOf('\n') + 1)), [result], 'even results larger than the OS argument limit reach compact intact');
+    assert.equal(calls[1].args[calls[1].args.indexOf('--model') + 1], 'claude-fable-5-2');
+    const marker = output.find((item) => item.type === 'compaction');
+    const after = await request('/backend-api/codex/responses', { headers, body: responsesBody('claude-fable-5-2', [envContext(workdir), marker, userMsg('continue')]) });
+    assert.equal(parseSse(after.data).at(-1).type, 'response.completed');
+    assert.equal(readClaudeLog().at(-1).args[readClaudeLog().at(-1).args.indexOf('--resume') + 1], marker.encrypted_content.split(':')[2]);
+  } finally {
+    delete process.env.FAKE_CLAUDE_SCENARIO;
+  }
+});
+
+test('WebSocket compaction after a tool handoff returns a compaction item, not another tool call', async () => {
+  process.env.FAKE_CLAUDE_SCENARIO = 'codex-tools';
+  const thread = 'ws-compact-tools';
+  const socket = new WebSocket(`ws://127.0.0.1:${port}/backend-api/codex/responses`, { headers: { 'thread-id': thread } });
+  try {
+    await new Promise((resolve, reject) => { socket.once('open', resolve); socket.once('error', reject); });
+    const input = [perms, envContext(workdir), userMsg('list my tasks')];
+    const first = await webSocketTurn(socket, JSON.parse(responsesBody('claude-fable-5-2', input, { tools: codexTools })));
+    const call = first.response.output.find((item) => item.type === 'function_call');
+    const result = { type: 'function_call_output', call_id: call.call_id, output: 'apricot over WebSocket' };
+    const compact = await webSocketTurn(socket, JSON.parse(responsesBody('claude-fable-5-2', [...input, ...first.response.output, result, { type: 'compaction_trigger' }], { tools: codexTools })));
+    assert.equal(compact.response.output.filter((item) => item.type === 'compaction').length, 1);
+    assert.equal(compact.response.output.some((item) => item.type === 'function_call'), false);
+  } finally {
+    socket.close();
+    delete process.env.FAKE_CLAUDE_SCENARIO;
+  }
+});
+
+test('a failed compact can retry without losing the just-finished tool result', async () => {
+  process.env.FAKE_CLAUDE_SCENARIO = 'codex-tools';
+  try {
+    fs.rmSync(claudeLog, { force: true });
+    const headers = { 'content-type': 'application/json', 'thread-id': 'retry-compact-tools' };
+    const input = [perms, envContext(workdir), userMsg('list my tasks')];
+    const first = await request('/backend-api/codex/responses', { headers, body: responsesBody('claude-fable-5-2', input, { tools: codexTools }) });
+    const items = doneItems(first.data);
+    const call = items.find((item) => item.type === 'function_call');
+    const result = { type: 'function_call_output', call_id: call.call_id, output: 'apricot survives a failed compact' };
+    const body = responsesBody('claude-fable-5-2', [...input, ...items, result, { type: 'compaction_trigger' }], { tools: codexTools });
+    process.env.FAKE_CLAUDE_SCENARIO = 'compact-error';
+    const failed = await request('/backend-api/codex/responses', { headers, body });
+    assert.equal(parseSse(failed.data).at(-1).type, 'response.failed');
+    assert.equal(doneItems(failed.data).some((item) => item.type === 'compaction'), false);
+    delete process.env.FAKE_CLAUDE_SCENARIO;
+    const retried = await request('/backend-api/codex/responses', { headers, body });
+    assert.equal(doneItems(retried.data).filter((item) => item.type === 'compaction').length, 1);
+    assert.deepEqual(JSON.parse(readClaudeLog().at(-1).stdin.split('\n').slice(1).join('\n')), [result]);
   } finally {
     delete process.env.FAKE_CLAUDE_SCENARIO;
   }

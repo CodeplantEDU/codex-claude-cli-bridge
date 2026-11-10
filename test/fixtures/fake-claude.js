@@ -32,7 +32,7 @@ process.stdin.on('end', () => {
   if (log) fs.appendFileSync(log, JSON.stringify({ args, stdin, cwd: process.cwd(), threadId: process.env.CODEX_THREAD_ID ?? null, pid: process.pid, grandchildPid }) + '\n');
   const out = (o) => process.stdout.write(JSON.stringify(o) + '\n');
 
-  if (args.includes('/compact')) {
+  if (args.includes('/compact') || stdin.startsWith('/compact ')) {
     if (process.env.FAKE_CLAUDE_SCENARIO === 'hold-compact') {
       const waiting = setInterval(() => {
         if (!fs.existsSync(process.env.FAKE_CLAUDE_HOLD_FILE)) return;

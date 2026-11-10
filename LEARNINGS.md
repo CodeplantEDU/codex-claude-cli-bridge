@@ -25,6 +25,16 @@ Each entry looks like:
 
 
 ---
+**Date:** 2026-11-10
+**Trigger:** Ethan's long Fable 5.2 chat failed after returning a Codex tool result, displaying `remote compaction v2 expected exactly one compaction output item, got 0 from 2 output items`.
+**Symptom:** The bridge resumed a waiting native turn, then handed its next tool call back to a request that Codex expected to contain a compaction item. No native compact process started for that request. The native process waited for the rejected call's result until the next user request stopped it. A later pre-turn compaction succeeded and the chat continued in the same Claude session. A preceding subscription limit was a separate event.
+**Root cause:** `handleClaudeResponses` resumed `findCodexResults` before checking `hasCompactionTrigger`. A mid-turn compaction carries the newly completed tool output too, so it matched the ordinary continuation branch.
+**Fix:** Compaction takes priority over ordinary result delivery. Reuse the existing exact-chat cancellation and native `/compact` route, explicitly keeping the selected model. Forward completed tool outputs after the latest bridge marker as native compact instructions, through stdin rather than argv. This preserves outputs not yet delivered to the stopped native turn, including on a retry after compaction failed. Failure still must not create a successful marker or change session ownership.
+**Guard:** HTTP and WebSocket regressions reproduce this overlap, check one compaction item instead of another tool call, retain a 150 KB tool result, and verify resumed session identity and failure/retry retention. Existing ordinary tool continuations, side-chat forks, GPT routing and idle-reload tests remain in the suite. A real isolated Fable 5.2 session compacted with a synthetic completed tool output, then returned its exact recovery code on a tools-disabled resumed turn with the same session ID. The affected desktop chat separately resumed and completed further Codex tools before installation; do not attribute that recovery to code the production process has not loaded.
+---
+
+
+---
 **Date:** 2026-11-09
 **Trigger:** Replacing Fable 5.1 with 5.2 left both buttons visible after a Codex restart; Ethan requested future model updates without reinstalling Codex.
 **Symptom:** The running bridge had the new route, but the previous version was still a listed model. Editing model declarations in JavaScript also required a bridge process reload, which waits for GPT sockets as well as Claude work.
