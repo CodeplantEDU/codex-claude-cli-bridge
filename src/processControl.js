@@ -14,6 +14,16 @@ export const hasPendingProcessCleanup = () => pendingCleanups > 0;
 /** Current pid -> { ppid, started } table, or null when `ps` is unavailable. */
 export function processTable() {
   return new Promise((resolve) => {
+    if (process.platform === 'win32') {
+      execFile('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', 'Get-CimInstance Win32_Process | Select-Object ProcessId,ParentProcessId,@{n="started";e={$_.CreationDate.ToUniversalTime().ToString("o")}} | ConvertTo-Json -Compress'], { windowsHide: true, timeout: 10000, maxBuffer: 8 * 1024 * 1024 }, (error, stdout) => {
+        if (error) return resolve(null);
+        try {
+          const rows = JSON.parse(stdout);
+          resolve(new Map(rows.map(row => [row.ProcessId, { ppid: row.ParentProcessId, started: row.started }])));
+        } catch { resolve(null); }
+      });
+      return;
+    }
     execFile('ps', ['-A', '-o', 'pid=,ppid=,lstart='], { timeout: 2000, maxBuffer: 8 * 1024 * 1024 }, (error, stdout) => {
       if (error) return resolve(null);
       const table = new Map();

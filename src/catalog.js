@@ -1,3 +1,5 @@
+import fs from 'node:fs';
+
 const EFFORT_LEVELS = [
   { effort: 'low', description: 'Fastest; light thinking' },
   { effort: 'medium', description: 'Balanced speed and depth' },
@@ -63,13 +65,29 @@ export function pickTemplate(models) {
   return pool.slice().sort((a, b) => (a.priority ?? 0) - (b.priority ?? 0))[0];
 }
 
-export function mergeCatalog(config, state, upstreamModels) {
+/** Reads a user-edited order file: one model slug per line, '#' starts a comment. */
+export function readModelOrder(file) {
+  if (!file) return [];
+  try {
+    return fs.readFileSync(file, 'utf8').split(/\r?\n/).map((l) => l.replace(/#.*/, '').trim()).filter(Boolean);
+  } catch {
+    return [];
+  }
+}
+
+export function mergeCatalog(config, state, upstreamModels, order = readModelOrder(config.modelOrderFile)) {
   const hiddenModels = new Set(config.hiddenModels || []);
   const gpt = (upstreamModels || [])
     .filter((m) => !config.models.some((c) => c.slug === m.slug))
     .map((m) => hiddenModels.has(m.slug) ? { ...m, visibility: 'hide' } : m);
   const maxPriority = Math.max(0, ...gpt.map((m) => m.priority ?? 0));
-  return [...gpt, ...claudeEntries(config, state, pickTemplate(gpt), maxPriority)];
+  const merged = [...gpt, ...claudeEntries(config, state, pickTemplate(gpt), maxPriority)];
+  // Listed models go first in the file's order; unlisted ones keep their place after them.
+  for (const m of merged) {
+    const i = order.indexOf(m.slug);
+    if (i >= 0) m.priority = -10000 + i;
+  }
+  return merged;
 }
 
 export function fallbackGptModel(config, state) {

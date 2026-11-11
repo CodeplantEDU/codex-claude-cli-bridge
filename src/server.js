@@ -13,7 +13,7 @@ import { State } from './state.js';
 import { parseCodexRequest, buildClaudeUserMessage, sanitizeInputForOpenAI, makeMarker } from './codexInput.js';
 import { ResponsesStream, usageObject, rid } from './responsesStream.js';
 import { runClaudeTurn, compactSession, claudeCapabilities, hasActiveClaudeTurns } from './claudeRunner.js';
-import { mergeCatalog, fallbackGptModel } from './catalog.js';
+import { mergeCatalog, fallbackGptModel, readModelOrder } from './catalog.js';
 import { findCodexResults, cancelWaitingCodexTurns, cancelCodexTurns, waitingCodexTurns, waitingCodexTurnsReferencedBy } from './codexTools.js';
 import { diagnostics, diagnosticsSnapshot, logLifecycle, startResourceMonitor } from './diagnostics.js';
 
@@ -264,10 +264,11 @@ export function createBridge(initialConfig, state = new State()) {
       res.writeHead(503, { 'content-type': 'application/json' });
       return res.end(JSON.stringify({ error: { message: 'Model catalog unavailable; no cached catalog for this client.', type: 'server_error' } }));
     }
-    const models = mergeCatalog(config, state, upstreamModels);
+    const order = readModelOrder(config.modelOrderFile);
+    const models = mergeCatalog(config, state, upstreamModels, order);
     const headers = { 'content-type': 'application/json' };
     if (etag) {
-      const extra = JSON.stringify([config.models, config.hiddenModels, state.data.contextWindows]);
+      const extra = JSON.stringify([config.models, config.hiddenModels, state.data.contextWindows, order]);
       headers.etag = `"ccb-${crypto.createHash('sha1').update(etag + extra).digest('hex').slice(0, 16)}"`;
     }
     res.writeHead(200, headers);

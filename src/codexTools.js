@@ -15,6 +15,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import readline from 'node:readline';
+import { randomUUID } from 'node:crypto';
 import { rid } from './responsesStream.js';
 import { classifyUserText, normalizeAgentMessageForClaude } from './codexInput.js';
 
@@ -80,7 +81,7 @@ export class CodexToolServer {
   /** Starts listening and returns the socket path for the MCP proxy. */
   async listen() {
     this.dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ccb-tools-')); // mkdtemp makes a 0700 directory, so only this user can reach the socket.
-    this.socketPath = path.join(this.dir, 'mcp.sock');
+    this.socketPath = process.platform === 'win32' ? `\\\\.\\pipe\\ccb-tools-${randomUUID()}` : path.join(this.dir, 'mcp.sock');
     this.server = net.createServer((socket) => this.serve(socket));
     await new Promise((resolve, reject) => {
       this.server.once('error', reject);

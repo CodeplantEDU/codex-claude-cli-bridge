@@ -1,0 +1,16 @@
+# Codex 모델 목록 순서: 위에 적은 모델일수록 위에 표시됩니다.
+# 줄 순서를 바꾸고 저장하면 Codex를 다시 열 때 반영됩니다. 적지 않은 모델은 맨 아래에 표시됩니다.
+# 새 Claude 모델은 매일 07:00 확인 후 이 파일 맨 아래에 자동으로 추가됩니다.
+
+gpt-6.1-sol
+gpt-6-astra
+gpt-6.1-terra
+claude-opus-5-5
+claude-fable-5-2
+claude-sonnet-5-5
+gpt-6-sol
+gpt-6-luna
+gpt-5.6-sol
+gpt-5.6-terra
+gpt-5.6-luna
+claude-haiku-5-5

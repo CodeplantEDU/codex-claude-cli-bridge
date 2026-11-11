@@ -2,6 +2,7 @@
 import { spawn, execFile } from 'node:child_process';
 import os from 'node:os';
 import fs from 'node:fs';
+import path from 'node:path';
 import readline from 'node:readline';
 import { fileURLToPath } from 'node:url';
 import { rid, usageObject } from './responsesStream.js';
@@ -67,7 +68,7 @@ let capabilityCache = null;
 export async function claudeCapabilities(claudePath) {
   if (capabilityCache?.claudePath === claudePath) return capabilityCache.capabilities;
   const help = await new Promise((resolve) => {
-    execFile(claudePath, ['--help'], { timeout: 15000, maxBuffer: 4 * 1024 * 1024 }, (err, stdout, stderr) =>
+    execFile(claudePath, ['--help'], { windowsHide: true, timeout: 15000, maxBuffer: 4 * 1024 * 1024 }, (err, stdout, stderr) =>
       resolve(err ? '' : `${stdout}\n${stderr}`.trim()),
     );
   });
@@ -184,6 +185,8 @@ export async function runClaudeTurn({ config, state, stream, parsed, modelCfg, e
       ...permissionArgs(permissionMode),
     ];
     if (caps.partial) args.push('--include-partial-messages');
+    // This Windows integration delegates every tool to Codex's approval-aware executor.
+    if (process.platform === 'win32') args.push('--tools', '', '--strict-mcp-config', '--setting-sources', '');
     if (caps.permissionPrompts) args.push('--permission-prompts', 'none');
     const effortLevel = EFFORT[String(effort || '').toLowerCase()];
     if (caps.effort && effortLevel) args.push('--effort', effortLevel);
@@ -200,7 +203,13 @@ export async function runClaudeTurn({ config, state, stream, parsed, modelCfg, e
     const system = [BRIDGE_NOTE, questionsNote, catalog.size ? CODEX_TOOLS_NOTE : '', config.extraSystemPrompt, ...parsed.agentsMd, skills, parsed.codexMemory]
       .filter(Boolean)
       .join('\n\n');
-    args.push('--append-system-prompt', system);
+    let promptFile;
+    if (process.platform === 'win32') {
+      // Windows limits command lines to 32767 characters; preserve the full prompt in a temporary file.
+      promptFile = path.join(os.tmpdir(), `${rid('ccb-prompt-')}.txt`);
+      fs.writeFileSync(promptFile, system, { mode: 0o600, flag: 'wx' });
+      args.push('--append-system-prompt-file', promptFile);
+    } else args.push('--append-system-prompt', system);
     const mcpConfig = { mcpServers: {} };
     const env = claudeEnvironment(parsed.threadId);
     // Calls Claude makes to Codex's tools; each waits here until Codex returns its result.
@@ -251,10 +260,12 @@ export async function runClaudeTurn({ config, state, stream, parsed, modelCfg, e
     const nativeTurnId = rid('turn_'); // Correlates this native process's lifecycle lines and /health entry; never derived from prompt content.
     const session = parsed.resume ? (parsed.fork ? 'fork' : 'resume') : 'new';
     const child = spawn(config.claudePath, args, {
+      windowsHide: true,
       cwd,
       env,
       stdio: ['pipe', 'pipe', 'pipe'],
     });
+    child.once('close', () => { if (promptFile) fs.rmSync(promptFile, { force: true }); });
     const exited = new Promise((resolve) => child.on('close', resolve));
     diagnostics.processStarted({ id: nativeTurnId, kind: 'turn', threadId: parsed.threadId, codexTurnId: parsed.codexTurnId, pid: child.pid, model: modelCfg.claudeModel, session });
     logLifecycle(log, 'spawn', { turn: nativeTurnId, thread: parsed.threadId, codexTurn: parsed.codexTurnId, pid: child.pid, model: modelCfg.claudeModel, session, codexTools: catalog.size });
@@ -578,6 +589,7 @@ export async function compactSession({ config, sid, cwd, log, threadId, modelCfg
   return new Promise((resolve) => {
     // stdin must be closed: `claude -p` waits for piped stdin otherwise.
     const child = spawn(config.claudePath, args, {
+      windowsHide: true,
       cwd: cwd && fs.existsSync(cwd) ? cwd : os.homedir(),
       env: claudeEnvironment(threadId),
       stdio: [toolOutputs.length ? 'pipe' : 'ignore', 'pipe', 'pipe'],
